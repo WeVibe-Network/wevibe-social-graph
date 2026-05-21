@@ -4,10 +4,10 @@ WORKDIR /build
 
 RUN apk add --no-cache build-base
 
-COPY Echo-Internal/wevibe-social-graph/go.mod Echo-Internal/wevibe-social-graph/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY Echo-Internal/wevibe-social-graph/ ./
+COPY . ./
 
 RUN CGO_ENABLED=1 GOOS=linux go build -o wevibe-social-graph ./cmd/server
 
