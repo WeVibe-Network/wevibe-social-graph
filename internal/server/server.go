@@ -8,15 +8,17 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/wevibe-network/wevibe-social-graph/internal/chain"
 	"github.com/wevibe-network/wevibe-social-graph/internal/store"
 )
 
 type Server struct {
 	store *store.Store
+	chain *chain.Client
 }
 
-func New(profileStore *store.Store) *Server {
-	return &Server{store: profileStore}
+func New(profileStore *store.Store, chainClient *chain.Client) *Server {
+	return &Server{store: profileStore, chain: chainClient}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -25,7 +27,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/v1/profiles/batch", s.handleBatchProfiles)
 	mux.HandleFunc("/v1/profiles", s.handleProfiles)
 	mux.HandleFunc("/v1/profiles/", s.handleProfileByWallet)
-	return mux
+	mux.HandleFunc("/v1/stats/contributor/", s.handleContributorStats)
+	return corsMiddleware(mux)
 }
 
 type createProfileRequest struct {
@@ -39,6 +42,18 @@ type patchProfileRequest struct {
 	AvatarURL       *string `json:"avatar_url,omitempty"`
 	WalletPubkey    string  `json:"wallet_pubkey"`
 	WalletSignature string  `json:"wallet_signature"`
+}
+
+type contributorStatsResponse struct {
+	Pubkey         string `json:"pubkey"`
+	DisplayName    string `json:"display_name,omitempty"`
+	Contributions  uint64 `json:"contributions"`
+	Serves         uint64 `json:"serves"`
+	SelfServes     uint64 `json:"self_serves"`
+	ReputationXP   uint64 `json:"reputation_xp"`
+	ServeXP        uint64 `json:"serve_xp"`
+	OrgBreadth     uint64 `json:"org_breadth"`
+	FirstSeenEpoch uint64 `json:"first_seen_epoch"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +196,48 @@ func (s *Server) handleBatchProfiles(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, profiles)
 }
 
+func (s *Server) handleContributorStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	pubkey := strings.TrimPrefix(r.URL.Path, "/v1/stats/contributor/")
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" || strings.Contains(pubkey, "/") {
+		respondError(w, http.StatusBadRequest, "pubkey is required")
+		return
+	}
+
+	stats, err := s.chain.GetContributorStats(r.Context(), pubkey)
+	if err != nil {
+		respondError(w, http.StatusBadGateway, "failed to load contributor stats")
+		return
+	}
+
+	response := contributorStatsResponse{
+		Pubkey:         stats.Pubkey,
+		Contributions:  stats.Contributions,
+		Serves:         stats.Serves,
+		SelfServes:     stats.SelfServes,
+		ReputationXP:   stats.ReputationXP,
+		ServeXP:        stats.ServeXP,
+		OrgBreadth:     stats.OrgBreadth,
+		FirstSeenEpoch: stats.FirstSeenEpoch,
+	}
+
+	if response.Pubkey == "" {
+		response.Pubkey = pubkey
+	}
+
+	profile, profileErr := s.store.GetProfile(r.Context(), pubkey)
+	if profileErr == nil && profile != nil {
+		response.DisplayName = profile.DisplayName
+	}
+
+	respondJSON(w, http.StatusOK, response)
+}
+
 func buildPatchCanonical(wallet string, displayName, avatarURL *string) string {
 	displayNameValue := ""
 	if displayName != nil {
@@ -231,4 +288,19 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

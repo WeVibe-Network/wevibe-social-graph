@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/wevibe-network/wevibe-social-graph/internal/chain"
 	"github.com/wevibe-network/wevibe-social-graph/internal/server"
 	"github.com/wevibe-network/wevibe-social-graph/internal/store"
 )
@@ -15,6 +16,7 @@ import (
 func main() {
 	dbPath := getenv("SOCIAL_GRAPH_DB_PATH", "/data/social-graph.db")
 	port := getenvInt("SOCIAL_GRAPH_PORT", 4470)
+	chainRestURL := getenv("CHAIN_REST_URL", "http://wevibe-chain:1317")
 
 	profileStore, err := store.New(dbPath)
 	if err != nil {
@@ -22,7 +24,8 @@ func main() {
 	}
 	defer profileStore.Close()
 
-	handler := server.New(profileStore)
+	chainClient := chain.New(chainRestURL)
+	handler := server.New(profileStore, chainClient)
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
 		Handler:           handler.Routes(),
