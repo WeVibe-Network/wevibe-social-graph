@@ -1,6 +1,3 @@
-# Worker AI operating context — local only, never committed
-AGENTS.md
-SESSIONCONTINUANCE.md
 
 # OS artifacts
 .DS_Store
@@ -25,3 +22,9 @@ Thumbs.db
 coverage.out
 coverage.html
 vendor/
+
+# Local orchestration docs (never committed)
+AGENTS.md
+MANAGER.md
+WORKER.md
+SESSIONCONTINUANCE.md
