@@ -32,14 +32,16 @@ func New(restURL string) *Client {
 }
 
 type ContributorStats struct {
-	Pubkey         string
-	Contributions  uint64
-	Serves         uint64
-	SelfServes     uint64
-	ReputationXP   uint64
-	ServeXP        uint64
-	OrgBreadth     uint64
-	FirstSeenEpoch uint64
+	Pubkey            string
+	Contributions     uint64
+	Serves            uint64
+	SelfServes        uint64
+	ReputationXP      uint64
+	ServeXP           uint64
+	OrgBreadth        uint64
+	FirstSeenEpoch    uint64
+	PendingWithdrawal uint64
+	AllTimeEarnings   uint64
 }
 
 type contributorStatsResponse struct {
@@ -53,6 +55,13 @@ type contributorStatsResponse struct {
 	FirstSeenEpoch string          `json:"first_seen_epoch"`
 	Code           json.RawMessage `json:"code"`
 	Message        string          `json:"message"`
+}
+
+type contributorRewardResponse struct {
+	PendingWithdrawal string          `json:"pending_withdrawal"`
+	AllTimeEarnings   string          `json:"all_time_earnings"`
+	Code              json.RawMessage `json:"code"`
+	Message           string          `json:"message"`
 }
 
 func (c *Client) GetContributorStats(ctx context.Context, pubkey string) (*ContributorStats, error) {
@@ -137,6 +146,57 @@ func (c *Client) GetContributorStats(ctx context.Context, pubkey string) (*Contr
 		OrgBreadth:     orgBreadth,
 		FirstSeenEpoch: firstSeenEpoch,
 	}, nil
+}
+
+func (c *Client) GetContributorReward(ctx context.Context, pubkey string) (pending uint64, allTime uint64, err error) {
+	if c == nil || c.http == nil {
+		return 0, 0, fmt.Errorf("chain client is not initialized")
+	}
+
+	endpoint := fmt.Sprintf("%s/wevibe/emissions/v1/contributor-reward/%s", c.restURL, pubkey)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("build contributor reward request: %w", err)
+	}
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		return 0, 0, fmt.Errorf("request contributor reward: %w", err)
+	}
+	defer response.Body.Close()
+
+	var payload contributorRewardResponse
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		if response.StatusCode != http.StatusOK {
+			return 0, 0, fmt.Errorf("contributor reward request failed: status %d", response.StatusCode)
+		}
+		return 0, 0, fmt.Errorf("decode contributor reward response: %w", err)
+	}
+
+	errorCode, hasErrorCode := parseErrorCode(payload.Code)
+	if response.StatusCode != http.StatusOK || hasErrorCode {
+		if isNotFoundError(errorCode, payload.Message) {
+			return 0, 0, nil
+		}
+
+		if hasErrorCode {
+			return 0, 0, fmt.Errorf("contributor reward response error (code=%d): %s", errorCode, payload.Message)
+		}
+
+		return 0, 0, fmt.Errorf("contributor reward request failed: status %d", response.StatusCode)
+	}
+
+	pending, err = parseUintField(payload.PendingWithdrawal, "pending_withdrawal")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	allTime, err = parseUintField(payload.AllTimeEarnings, "all_time_earnings")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return pending, allTime, nil
 }
 
 func parseUintField(raw string, field string) (uint64, error) {

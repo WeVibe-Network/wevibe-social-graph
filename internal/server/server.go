@@ -45,15 +45,17 @@ type patchProfileRequest struct {
 }
 
 type contributorStatsResponse struct {
-	Pubkey         string `json:"pubkey"`
-	DisplayName    string `json:"display_name,omitempty"`
-	Contributions  uint64 `json:"contributions"`
-	Serves         uint64 `json:"serves"`
-	SelfServes     uint64 `json:"self_serves"`
-	ReputationXP   uint64 `json:"reputation_xp"`
-	ServeXP        uint64 `json:"serve_xp"`
-	OrgBreadth     uint64 `json:"org_breadth"`
-	FirstSeenEpoch uint64 `json:"first_seen_epoch"`
+	Pubkey            string `json:"pubkey"`
+	DisplayName       string `json:"display_name,omitempty"`
+	Contributions     uint64 `json:"contributions"`
+	Serves            uint64 `json:"serves"`
+	SelfServes        uint64 `json:"self_serves"`
+	ReputationXP      uint64 `json:"reputation_xp"`
+	ServeXP           uint64 `json:"serve_xp"`
+	OrgBreadth        uint64 `json:"org_breadth"`
+	FirstSeenEpoch    uint64 `json:"first_seen_epoch"`
+	PendingWithdrawal uint64 `json:"pending_withdrawal"`
+	AllTimeEarnings   uint64 `json:"all_time_earnings"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +230,12 @@ func (s *Server) handleContributorStats(w http.ResponseWriter, r *http.Request) 
 
 	if response.Pubkey == "" {
 		response.Pubkey = pubkey
+	}
+
+	pending, allTime, rewardErr := s.chain.GetContributorReward(r.Context(), pubkey)
+	if rewardErr == nil {
+		response.PendingWithdrawal = pending
+		response.AllTimeEarnings = allTime
 	}
 
 	profile, profileErr := s.store.GetProfile(r.Context(), pubkey)
