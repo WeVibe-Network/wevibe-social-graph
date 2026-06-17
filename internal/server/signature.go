@@ -59,6 +59,9 @@ func deriveSecp256k1Address(pubkeyBytes []byte) (string, error) {
 	if len(pubkeyBytes) != 33 {
 		return "", errors.New("invalid compressed pubkey size")
 	}
+	if _, err := btcec.ParsePubKey(pubkeyBytes); err != nil {
+		return "", errors.New("invalid secp256k1 pubkey")
+	}
 
 	hasherSHA := sha256.New()
 	_, _ = hasherSHA.Write(pubkeyBytes[1:])
@@ -68,7 +71,13 @@ func deriveSecp256k1Address(pubkeyBytes []byte) (string, error) {
 	_, _ = hasherRIPEMD.Write(shaDigest)
 	pubkeyHash := hasherRIPEMD.Sum(nil)
 
-	address, err := bech32.Encode("wevibe", pubkeyHash)
+	// btcutil/bech32.Encode expects 5-bit groups, so convert the 20-byte hash from 8-bit first.
+	converted, err := bech32.ConvertBits(pubkeyHash, 8, 5, true)
+	if err != nil {
+		return "", fmt.Errorf("bech32 convert bits: %w", err)
+	}
+
+	address, err := bech32.Encode("wevibe", converted)
 	if err != nil {
 		return "", fmt.Errorf("bech32 encode: %w", err)
 	}
